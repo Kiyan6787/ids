@@ -1,12 +1,9 @@
-"""
-P3 - Evaluation & Analysis (UC6 + UC7, consolidated)
-ResultsAnalyser: cross-model comparison and per-category disaggregation.
+"""Cross-model comparison and per-category disaggregation.
 
-FR-EV-03 is ENFORCED here: verify_invariant() checks that every
-evaluation carries the same preprocessing manifest hash and the same
-test-split size. compare_models() and the per-category methods refuse
-to run if the invariant fails (contract test 3.6: "the comparator must
-refuse to produce output rather than return an unfair comparison").
+verify_invariant() checks that every evaluation carries the same
+preprocessing manifest hash and the same test-split size. compare_models()
+and the per-category methods refuse to run if that invariant fails,
+rather than return an unfair comparison.
 """
 
 from __future__ import annotations
@@ -22,38 +19,36 @@ logger = logging.getLogger(__name__)
 
 
 class InvariantViolation(RuntimeError):
-    """Raised when the FR-EV-03 identical-conditions invariant fails."""
+    """Raised when evaluations were not produced under identical conditions."""
 
 
 class ResultsAnalyser:
-    """Consolidated UC6 (compare models) + UC7 (per-category analysis)."""
+    """Cross-model comparison and per-category analysis."""
 
     def __init__(self, evaluations: list[dict]):
         if not evaluations:
             raise ValueError("ResultsAnalyser requires at least one evaluation")
         self.evaluations = list(evaluations)
 
-    # ------------------------------------------------------- FR-EV-03 gate
     def verify_invariant(self) -> bool:
         return self._check_manifest_consistency() and self._check_test_size_consistency()
 
     def _require_invariant(self) -> None:
         if not self._check_manifest_consistency():
             raise InvariantViolation(
-                "FR-EV-03 violated: evaluations carry different preprocessing "
-                "manifest hashes - the models were not scored under identical "
-                "conditions. Refusing to produce comparative output."
+                "Evaluations carry different preprocessing manifest hashes - "
+                "the models were not scored under identical conditions. "
+                "Refusing to produce comparative output."
             )
         if not self._check_test_size_consistency():
             raise InvariantViolation(
-                "FR-EV-03 violated: evaluations have different test-split "
-                "sizes. Refusing to produce comparative output."
+                "Evaluations have different test-split sizes. "
+                "Refusing to produce comparative output."
             )
 
-    # ---------------------------------------------------------------- UC6
     def compare_models(self) -> pd.DataFrame:
-        """Side-by-side metrics table: one row per model, all four metrics
-        (+ accuracy, ROC-AUC, threshold). Test 3.7: complete, no NaNs."""
+        """Side-by-side metrics table: one row per model, all metrics
+        plus accuracy, ROC-AUC, and threshold."""
         self._require_invariant()
         rows = []
         for ev in self.evaluations:
@@ -70,7 +65,6 @@ class ResultsAnalyser:
             })
         return pd.DataFrame(rows)
 
-    # ---------------------------------------------------------------- UC7
     def analyse_by_category(
         self,
         scores: np.ndarray,
@@ -83,9 +77,8 @@ class ResultsAnalyser:
 
         For each attack category: recall on that category's flows, plus
         the TP/FN counts. FP/TN are properties of the benign population
-        and are reported once under the 'BENIGN' row (as FPR).
-        Coverage guarantee (test 3.8): every category present in
-        ``categories`` appears in the output."""
+        and are reported once under the 'BENIGN' row (as FPR). Every
+        category present in ``categories`` appears in the output."""
         scores = np.asarray(scores, dtype=np.float64).reshape(-1)
         labels = np.asarray(labels).reshape(-1).astype(int)
         categories = np.asarray(categories).reshape(-1)
@@ -99,7 +92,7 @@ class ResultsAnalyser:
         return pd.DataFrame(rows)
 
     def analyse_all_models_by_category(self, categories: np.ndarray) -> pd.DataFrame:
-        """UC7 across every evaluation held by the analyser."""
+        """Per-category analysis across every evaluation held by the analyser."""
         self._require_invariant()
         frames = []
         for ev in self.evaluations:
@@ -109,7 +102,6 @@ class ResultsAnalyser:
             ))
         return pd.concat(frames, ignore_index=True)
 
-    # ------------------------------------------------------------- overlays
     def get_roc_overlay_data(self) -> dict:
         self._require_invariant()
         return {ev["model_name"]: ev["roc_curve"] for ev in self.evaluations}
@@ -139,7 +131,7 @@ class ResultsAnalyser:
     ) -> dict:
         """Confusion counts restricted to the masked subset. Summing these
         counts across all category rows reconciles exactly to the overall
-        confusion matrix (test 3.9)."""
+        confusion matrix."""
         cm = MetricsCalculator.compute_confusion_matrix(labels[mask], predictions[mask])
         n = int(mask.sum())
         recall = cm["tp"] / (cm["tp"] + cm["fn"]) if (cm["tp"] + cm["fn"]) > 0 else None

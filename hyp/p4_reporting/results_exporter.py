@@ -1,13 +1,9 @@
-"""
-P4 - Reporting (UC8)
-ResultsExporter: FR-RP-01 (comparative tables), FR-RP-02 (confusion
-matrices), FR-RP-03 (ROC/PR overlays, per-category bar charts).
+"""Exports comparison tables, confusion matrices, ROC/PR overlays, and
+per-category bar charts to disk, alongside a manifest that maps each
+output file back to the pipeline stage that produced it.
 
-Everything is written to disk with an export manifest that maps each
-file back to its source use case chain (UC8 -> UC6/UC7 -> UC5 -> UC4
--> UC2 -> UC1), fulfilling the traceability note on the P4 class
-diagram. Matplotlib runs headless ('Agg' backend) so the pipeline can
-run on a CI box (test plan P4: headless smoke test).
+Matplotlib runs headless ('Agg' backend) so this works on a CI box
+with no display.
 """
 
 from __future__ import annotations
@@ -29,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResultsExporter:
-    """Collates P3 outputs into dissertation-ready artefacts."""
+    """Collates evaluation outputs into report-ready artefacts."""
 
     def __init__(self, output_dir: str, figure_format: str = "png", figure_dpi: int = 200):
         self.output_dir = Path(output_dir)
@@ -38,7 +34,6 @@ class ResultsExporter:
         self.figure_dpi = figure_dpi
         self.manifest: list[dict] = []
 
-    # ------------------------------------------------------------- FR-RP-01
     def export_tables(self, comparison_df: pd.DataFrame, category_df: pd.DataFrame) -> None:
         comp_path = self.output_dir / "comparison_table.csv"
         comparison_df.to_csv(comp_path, index=False)
@@ -48,7 +43,6 @@ class ResultsExporter:
         category_df.to_csv(cat_path, index=False)
         self._record(cat_path, "UC7", "Per-attack-category disaggregation")
 
-    # ------------------------------------------------------------- FR-RP-02
     def export_confusion_matrices(self, evaluations: list[dict]) -> None:
         for ev in evaluations:
             fig = self._create_heatmap(
@@ -60,7 +54,6 @@ class ResultsExporter:
                 "UC5", f"Confusion matrix for {ev['model_name']}",
             )
 
-    # ------------------------------------------------------------- FR-RP-03
     def export_roc_curves(self, evaluations: list[dict]) -> None:
         fig = self._create_curve_overlay(evaluations, "roc")
         self._save_figure(fig, "roc_overlay", "UC6", "ROC overlay, all models")

@@ -1,12 +1,8 @@
-"""
-P1 - Data Management (UC1)
-Preprocessor: FR-DM-02 (NaN/Inf repair), FR-DM-03 (normalisation),
-FR-DM-04 (categorical encoding).
+"""Cleans, encodes, and normalises CICIDS 2017 flow records.
 
-The preprocessing manifest and its SHA-256 hash are the anchor of the
-FR-EV-03 invariant: every model artefact and every evaluation carries
-this hash, and ResultsAnalyser.verify_invariant() refuses to compare
-results whose hashes differ.
+Every preprocessing run produces a manifest with a SHA-256 hash. Model
+artefacts and evaluations carry this hash so ResultsAnalyser can refuse
+to compare results that were produced under different preprocessing.
 """
 
 from __future__ import annotations
@@ -35,14 +31,10 @@ class Preprocessor:
         self.feature_columns: list[str] = []
         self.label_column: str = ""
 
-    # ------------------------------------------------------------------ API
     def repair_nan_inf(self, df: pd.DataFrame) -> pd.DataFrame:
-        """FR-DM-02: repair NaN/Inf artefacts introduced by CICFlowMeter.
-
-        Strategy (Engelen et al. [33]): the affected columns are
-        'Flow Bytes/s' and 'Flow Packets/s'; +/-Inf and NaN rows are
-        dropped, and each drop is recorded in ``drop_log`` so that
-        row-count arithmetic remains auditable (test 1.4)."""
+        """Drop rows with NaN/Inf artefacts introduced by CICFlowMeter
+        (mainly in 'Flow Bytes/s' and 'Flow Packets/s'). Each drop is
+        recorded in ``drop_log`` so row-count arithmetic stays auditable."""
         df = df.copy()
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
@@ -66,11 +58,10 @@ class Preprocessor:
         return df
 
     def encode_categorical(self, df: pd.DataFrame, label_col: str) -> pd.DataFrame:
-        """FR-DM-04: numerically encode the label column.
-
-        CICIDS 2017 feature columns are already numeric; the only
-        categorical field is the Label. The original string label is
-        preserved in 'Label_str' for UC7 per-category analysis."""
+        """Numerically encode the label column. CICIDS feature columns
+        are already numeric; the only categorical field is the label.
+        The original string label is preserved in 'Label_str' for
+        per-category analysis."""
         df = df.copy()
         self.label_column = label_col
         df[label_col] = df[label_col].astype(str).str.strip()
@@ -82,11 +73,9 @@ class Preprocessor:
         return df
 
     def normalise(self, df: pd.DataFrame, exclude: list[str]) -> pd.DataFrame:
-        """FR-DM-03: standardise numeric features to mean 0 / std 1.
-
-        The scaler is FIT here on the full cleaned frame and the fitted
-        parameters recorded in the manifest, so that any later run with
-        the same inputs yields byte-identical artefacts (test 1.6)."""
+        """Standardise numeric features to mean 0 / std 1. The scaler is
+        fit here on the full cleaned frame and its parameters recorded in
+        the manifest, so the same inputs always yield the same output."""
         df = df.copy()
         numeric_cols = self._identify_numeric_columns(df)
         self.feature_columns = [c for c in numeric_cols if c not in exclude]
@@ -111,10 +100,8 @@ class Preprocessor:
         return df
 
     def get_manifest(self) -> dict:
-        """Return the manifest including its SHA-256 hash (FR-EV-03 anchor).
-
-        Required keys (test 1.7): steps, feature_columns, label_column,
-        drop_log, preprocessing_hash."""
+        """Return the manifest, including its SHA-256 hash, with keys:
+        steps, feature_columns, label_column, drop_log, preprocessing_hash."""
         manifest = {
             "steps": self.manifest["steps"],
             "feature_columns": self.feature_columns,

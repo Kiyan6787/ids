@@ -1,10 +1,5 @@
-"""Tests for P4 (Reporting) and P5 (Operational Monitoring).
-
-P4: file-existence checks, manifest completeness, headless Matplotlib
-smoke test (preliminary test plan, P4 row).
-P5: AlertRecord field population, sub-threshold non-alert, FPR update
-arithmetic (test plan, P5 row).
-"""
+"""Tests for reporting (export artefacts) and operational monitoring
+(alerting, FPR tracking)."""
 
 import numpy as np
 import pandas as pd
@@ -33,7 +28,7 @@ def make_evaluation(model_name, seed=0):
     }
 
 
-# ---------------------------------------------------------------------- P4
+# ------------------------------------------------------------- reporting
 def test_exporter_creates_all_artefacts(tmp_path):
     evs = [make_evaluation(m, i) for i, m in enumerate(["AE", "LSTM", "IF"])]
     comparison = pd.DataFrame([{"model": e["model_name"], **e["metrics"]}
@@ -57,12 +52,12 @@ def test_exporter_creates_all_artefacts(tmp_path):
     assert (tmp_path / "export_manifest.json").exists()
     import json
     manifest = json.loads((tmp_path / "export_manifest.json").read_text())
-    # manifest completeness: every file maps back to a source UC
+    # manifest completeness: every exported file has a traceable source
     assert all("source_uc" in entry for entry in manifest["files"])
     assert len(manifest["files"]) == len(ex.get_exported_files())
 
 
-# ---------------------------------------------------------------------- P5
+# --------------------------------------------------------------- monitoring
 def trained_detector():
     det = IsolationForestDetector(n_estimators=20, random_state=0)
     det.train(np.random.RandomState(0).normal(0, 1, (300, 5)))

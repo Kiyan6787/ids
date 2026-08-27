@@ -1,15 +1,11 @@
-"""
-P1 - Data Management (UC1)
-DataSplitter: FR-DM-05 (benign-only train split), FR-DM-06 (deterministic
-persistence).
+"""Deterministic benign/attack-aware train/validation/test splitting.
 
-Split protocol (activity diagram):
   * TRAIN      - benign only            (unsupervised training)
   * VALIDATION - benign only            (threshold tuning at FPR <= 1 %)
   * TEST       - remaining benign + ALL attacks (held-out evaluation)
 
-The same persisted splits feed every model, which is what makes the
-three-way comparison controlled (FR-EV-03).
+The same persisted splits feed every model, which is what makes
+cross-model comparison fair.
 """
 
 from __future__ import annotations
@@ -37,11 +33,10 @@ class DataSplitter:
         self.validation_set: pd.DataFrame | None = None
         self.test_set: pd.DataFrame | None = None
 
-    # ------------------------------------------------------------------ API
     def split(
         self, df: pd.DataFrame, label_col: str
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """FR-DM-05: benign-only train/val, mixed test."""
+        """Benign-only train/val, mixed test."""
         benign, attack = self._separate_benign_attack(df)
         benign = self._shuffle_deterministic(benign)
 
@@ -65,7 +60,7 @@ class DataSplitter:
         return self.train_set, self.validation_set, self.test_set
 
     def persist_to_disk(self, output_dir: str) -> None:
-        """FR-DM-06: persist splits + split metadata for deterministic reuse."""
+        """Persist splits + split metadata for deterministic reuse."""
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
         self.train_set.to_parquet(out / "train.parquet", index=False)

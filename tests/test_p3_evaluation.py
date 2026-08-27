@@ -1,8 +1,9 @@
-"""Tests for P3 - Evaluation & Analysis, mapped to test plan 3.1-3.10.
+"""Tests for evaluation and cross-model analysis.
 
-Test 3.3 is the guideline-critical one: the hand-implemented metrics in
-MetricsCalculator are cross-checked against scikit-learn's reference
-implementations. The library appears ONLY here, never in the metric code.
+test_metrics_match_sklearn is the critical one: the hand-implemented
+metrics in MetricsCalculator are cross-checked against scikit-learn's
+reference implementations. sklearn appears only here, never in the
+metric code itself.
 """
 
 import numpy as np
@@ -25,7 +26,6 @@ def labelled_scores(seed=0, n=1000, attack_frac=0.3):
     return y, scores
 
 
-# 3.1 - Exactly one score per flow; alignment preserved under reordering
 def test_one_score_per_flow_alignment():
     X_train = np.random.RandomState(0).normal(0, 1, (300, 6))
     X_test = np.random.RandomState(1).normal(0, 1, (150, 6))
@@ -37,7 +37,6 @@ def test_one_score_per_flow_alignment():
     assert np.allclose(det.score(X_test[perm]), scores[perm])
 
 
-# 3.2 - Metrics correct to three decimal places on known confusion matrix
 def test_metrics_known_values():
     cm = {"tp": 80, "fp": 20, "tn": 880, "fn": 20}
     m = MC.compute_metrics(cm)
@@ -47,7 +46,6 @@ def test_metrics_known_values():
     assert round(m["fpr"], 3) == 0.022
 
 
-# 3.3 - Custom metrics match scikit-learn exactly
 def test_metrics_match_sklearn():
     y, scores = labelled_scores()
     preds = (scores > 1.0).astype(int)
@@ -64,14 +62,12 @@ def test_metrics_match_sklearn():
     assert auc == pytest.approx(skm.roc_auc_score(y, scores), abs=1e-9)
 
 
-# 3.4 - Edge cases do not crash
 def test_metric_edge_cases():
     assert MC.compute_metrics({"tp": 0, "fp": 0, "tn": 10, "fn": 0})["precision"] == 0.0
     assert MC.compute_metrics({"tp": 0, "fp": 0, "tn": 0, "fn": 10})["recall"] == 0.0
     assert MC.compute_metrics({"tp": 0, "fp": 0, "tn": 0, "fn": 0})["f1"] == 0.0
 
 
-# 3.5 - ROC AUC exceeds 0.5 for a genuinely informative scorer
 def test_roc_auc_above_half():
     y, scores = labelled_scores()
     roc = MC.compute_roc_curve(y, scores)
@@ -92,7 +88,6 @@ def make_evaluation(model_name, manifest_hash, n_test=500, seed=0):
     }
 
 
-# 3.6 - Contract: comparator refuses on manifest-hash mismatch
 def test_invariant_refusal():
     evs = [make_evaluation("A", "hash1"), make_evaluation("B", "hash2")]
     analyser = ResultsAnalyser(evs)
@@ -105,7 +100,6 @@ def test_invariant_refusal():
         ResultsAnalyser(evs2).compare_models()
 
 
-# 3.7 - Comparison table: one row per model, all metrics, no NaNs
 def test_comparison_table_complete():
     evs = [make_evaluation(m, "h", seed=i) for i, m in
            enumerate(["Autoencoder", "LSTM", "IsolationForest"])]
@@ -116,7 +110,6 @@ def test_comparison_table_complete():
     assert not df.isna().any().any()
 
 
-# 3.8 - Per-category coverage: every category appears in the output
 def test_per_category_coverage():
     y, scores = labelled_scores(n=700)
     cats = np.where(y == 0, "BENIGN",
@@ -128,7 +121,6 @@ def test_per_category_coverage():
     assert set(df["category"]) == set(np.unique(cats))
 
 
-# 3.9 - Per-category counts reconcile to the overall confusion matrix
 def test_per_category_reconciliation():
     y, scores = labelled_scores(n=800, seed=5)
     cats = np.where(y == 0, "BENIGN",
@@ -140,7 +132,7 @@ def test_per_category_reconciliation():
         assert df[k].sum() == overall[k]
 
 
-# 3.10 - Integration: raw data -> IF training -> persisted metrics
+# Integration: raw data -> Isolation Forest training -> persisted metrics.
 def test_full_chain_if_to_metrics(tmp_path):
     rng = np.random.RandomState(0)
     X_benign = rng.normal(0, 1, (600, 6))

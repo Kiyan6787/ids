@@ -1,8 +1,5 @@
-"""
-P2 - Model Training & Tuning (UC2.2)
-LSTMDetector: FR-MT-02 - LSTM next-step predictor trained on benign
-traffic sequences only; anomaly score = per-flow prediction error
-(Malhotra et al. [30] unsupervised formulation).
+"""LSTM next-step predictor trained on benign traffic sequences only;
+anomaly score = per-flow prediction error.
 
 Sequence construction: sliding windows of ``sequence_length`` consecutive
 flows predict the following flow. Each flow's score is the MSE between
@@ -10,8 +7,7 @@ the model's prediction of that flow and the flow itself.
 
 Boundary handling: the first ``sequence_length`` flows of a scored set
 have no full history window; they are assigned the score of the first
-scoreable flow so the output remains one score per input row (test 3.1's
-"exactly one anomaly score per network flow" contract).
+scoreable flow so the output stays one score per input row.
 """
 
 from __future__ import annotations

@@ -1,6 +1,4 @@
-"""
-P1 - Data Management (UC1)
-DatasetLoader: FR-DM-01 - load the CICIDS 2017 dataset from native CSV.
+"""Loads the CICIDS 2017 dataset from its native CSV files.
 
 Concatenates all CSVs found in a directory, handling the well-known
 CICIDS 2017 quirks:
@@ -20,14 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 class DatasetLoader:
-    """Loads and concatenates the raw CICIDS 2017 flow CSVs (FR-DM-01)."""
+    """Loads and concatenates the raw CICIDS 2017 flow CSVs."""
 
     def __init__(self, csv_directory: str):
         self.csv_directory = Path(csv_directory)
         self.raw_dataframe: pd.DataFrame | None = None
         self.expected_columns: list[str] = []
 
-    # ------------------------------------------------------------------ API
     def load_all_csvs(self) -> pd.DataFrame:
         """Read every *.csv in ``csv_directory`` into one DataFrame."""
         csv_paths = sorted(self.csv_directory.glob("*.csv"))
@@ -45,9 +42,9 @@ class DatasetLoader:
         return self.raw_dataframe
 
     def validate_schema(self, expected: list[str]) -> bool:
-        """Check that all expected columns are present (activity-diagram
-        'Schema valid?' gate). Logs missing columns and returns False
-        instead of raising, so the caller decides how to fail."""
+        """Check that all expected columns are present. Logs missing
+        columns and returns False instead of raising, so the caller
+        decides how to fail."""
         if self.raw_dataframe is None:
             raise RuntimeError("Call load_all_csvs() before validate_schema().")
         self.expected_columns = list(expected)

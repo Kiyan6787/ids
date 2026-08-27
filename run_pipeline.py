@@ -1,21 +1,10 @@
-"""
-HYP - single top-level entry point that re-runs the entire experimental
-pipeline (proposal: "a single top-level script that re-runs the entire
-pipeline"), implementing the full-system activity diagram:
+"""Top-level entry point that runs the full experimental pipeline:
+load/clean/split data -> train + tune each model -> evaluate on the
+shared test split -> export tables, figures, and a traceability manifest.
 
-  P1 (UC1)  load -> validate -> repair -> encode -> normalise -> manifest
-            -> split -> persist
-  P2 (UC2+3) for each model: train on benign -> save -> score validation
-            -> tune threshold to FPR <= 1 %
-  P3 (UC4-7) evaluate each model on the SAME test split -> FR-EV-03 gate
-            -> comparison table -> per-category disaggregation
-  P4 (UC8)  export tables / confusion matrices / ROC / PR / bar charts
-            + traceability manifest
-
-Multi-seed protocol (proposal 6.3.2): the outer loop repeats P2+P3 for
-each seed with the TEST SPLIT HELD FIXED, then reports mean +/- std per
-model and a paired Wilcoxon signed-rank test between model pairs, plus
-the triviality baselines from regression test 5.3.
+The outer loop repeats training + evaluation across several seeds with
+the test split held fixed, then reports mean/std per model and a paired
+Wilcoxon signed-rank test between model pairs.
 
 Usage:
     python run_pipeline.py                 # full run, seeds from config
@@ -88,7 +77,7 @@ MODEL_FACTORIES = {
 
 
 # =========================================================================
-# P1 - Data Management (UC1)
+# Data loading, cleaning, and splitting
 # =========================================================================
 def run_p1(synthetic: bool = False):
     if synthetic:
@@ -109,9 +98,8 @@ def run_p1(synthetic: bool = False):
     df = pre.normalise(df, exclude=[config.LABEL_COLUMN])
     manifest = pre.get_manifest()
 
-    # The split seed is FIXED (seed 0) across the whole experiment: the
-    # multi-seed loop varies MODEL initialisation only, holding the test
-    # split constant (proposal 6.3.2 "holding the test split fixed").
+    # Split seed is fixed at 0 for the whole experiment: the multi-seed
+    # loop below varies model initialisation only, not the test split.
     splitter = DataSplitter(random_seed=0)
     train, val, test = splitter.split(df, config.LABEL_COLUMN)
     splitter.persist_to_disk(str(config.ARTEFACT_DIR))
@@ -122,7 +110,7 @@ def run_p1(synthetic: bool = False):
 
 
 # =========================================================================
-# P2 + P3 for one (model, seed) pair
+# Train, tune, and evaluate one (model, seed) pair
 # =========================================================================
 def run_model_once(model_key: str, seed: int, train, val, test,
                    feature_cols, manifest) -> dict:
@@ -151,7 +139,7 @@ def run_model_once(model_key: str, seed: int, train, val, test,
 
 
 # =========================================================================
-# Triviality baselines (regression test 5.3)
+# Trivial-classifier baselines (sanity check: models must beat these)
 # =========================================================================
 def triviality_baselines(y_test: np.ndarray, seed: int = 0) -> dict:
     from hyp.p3_evaluation.metrics_calculator import MetricsCalculator as MC
@@ -167,7 +155,7 @@ def triviality_baselines(y_test: np.ndarray, seed: int = 0) -> dict:
 
 
 # =========================================================================
-# Multi-seed aggregation + significance (proposal 6.3.2)
+# Multi-seed aggregation + significance testing
 # =========================================================================
 def aggregate_seeds(all_results: dict[str, list[dict]]) -> pd.DataFrame:
     rows = []
@@ -188,7 +176,7 @@ def aggregate_seeds(all_results: dict[str, list[dict]]) -> pd.DataFrame:
 
 def pairwise_significance(all_results: dict[str, list[dict]]) -> pd.DataFrame:
     """Paired Wilcoxon signed-rank test on per-seed F1 between model pairs
-    (non-parametric per proposal: 'avoids normality assumption')."""
+    (non-parametric, so it doesn't assume normally distributed F1 scores)."""
     models = list(all_results)
     rows = []
     for i in range(len(models)):
@@ -250,14 +238,14 @@ def main():
     for d in (config.ARTEFACT_DIR, config.MODEL_DIR, config.RESULTS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
-    # ---- P1 -------------------------------------------------------------
+    # ---- Load, clean, and split the data ---------------------------------
     train, val, test, feature_cols, manifest = run_p1(synthetic=args.synthetic)
     y_test = (test["Label_str"] != config.BENIGN_LABEL).astype(int).to_numpy()
     categories = np.where(y_test == 0, "BENIGN",
                           test["Label_str"].map(
                               lambda s: config.ATTACK_CATEGORY_MAP.get(s, s)))
 
-    # ---- P2 + P3, multi-seed loop ---------------------------------------
+    # ---- Train + evaluate every model across all seeds -------------------
     all_results: dict[str, list[dict]] = {m: [] for m in args.models}
     for seed in args.seeds:
         for model_key in args.models:
@@ -265,33 +253,34 @@ def main():
                 run_model_once(model_key, seed, train, val, test,
                                feature_cols, manifest))
 
-    # ---- FR-EV-03 gate + comparison on the FIRST seed (headline run) ----
+    # ---- Cross-model comparison on the first seed (headline run) ---------
     headline = [all_results[m][0] for m in args.models]
     analyser = ResultsAnalyser(headline)
     if not analyser.verify_invariant():
-        logger.error("FR-EV-03 invariant violated - refusing comparative output.")
+        logger.error("Evaluations were not produced under identical "
+                     "conditions - refusing comparative output.")
         sys.exit(1)
     comparison_df = analyser.compare_models()
     category_df = analyser.analyse_all_models_by_category(categories)
 
-    # ---- Multi-seed statistics ------------------------------------------
+    # ---- Multi-seed statistics --------------------------------------------
     seed_summary = aggregate_seeds(all_results)
     significance = pairwise_significance(all_results)
     baselines = triviality_baselines(y_test)
 
-    # Regression gates 5.2 / 5.3
+    # Flag unstable models (high F1 variance) or ones that fail to clear
+    # the trivial-classifier baselines by a meaningful margin.
     if (seed_summary["f1_std"] > config.MAX_F1_STD).any():
-        logger.warning("Regression 5.2: max per-model F1 std exceeds %.2f",
-                       config.MAX_F1_STD)
+        logger.warning("Max per-model F1 std exceeds %.2f", config.MAX_F1_STD)
     for _, row in seed_summary.iterrows():
         best_trivial = max(baselines.values())
         if row["f1_mean"] <= best_trivial + 0.05:
             logger.warning(
-                "Regression 5.3: %s (F1=%.3f) does not beat trivial "
-                "baselines (best=%.3f) by > 0.05", row["model"],
+                "%s (F1=%.3f) does not beat trivial baselines "
+                "(best=%.3f) by > 0.05", row["model"],
                 row["f1_mean"], best_trivial)
 
-    # ---- P4 export -------------------------------------------------------
+    # ---- Export tables, figures, and manifest -----------------------------
     exporter = ResultsExporter(str(config.RESULTS_DIR))
     exporter.export_tables(comparison_df, category_df)
     exporter.export_confusion_matrices(headline)

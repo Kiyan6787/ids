@@ -1,13 +1,6 @@
-"""
-P2 - Model Training & Tuning (UC2.3)
-IsolationForestDetector: FR-MT-03 - scikit-learn Isolation Forest;
-anomaly score = negated normalised path length.
-
-This is the EXISTING, library-based pipeline required by the AI project
-guidelines ("one of the 2 can be an existing pipeline where libraries
-can be used") and it doubles as the classical benchmark against which
-the deep models are compared.
-"""
+"""scikit-learn Isolation Forest detector; anomaly score = negated
+normalised path length. Serves as the classical benchmark against
+which the deep models are compared."""
 
 from __future__ import annotations
 

@@ -1,10 +1,5 @@
-"""
-P2 - Model Training & Tuning (UC2.1)
-AutoencoderDetector: FR-MT-01 - undercomplete autoencoder trained on
-benign traffic only; anomaly score = per-flow reconstruction error (MSE).
-
-PyTorch implementation of the architecture in the P2 class diagram.
-"""
+"""PyTorch undercomplete autoencoder trained on benign traffic only;
+anomaly score = per-flow reconstruction error (MSE)."""
 
 from __future__ import annotations
 

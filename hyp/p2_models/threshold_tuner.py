@@ -1,19 +1,14 @@
-"""
-P2 - Model Training & Tuning (UC3)
-ThresholdTuner: FR-MT-05 - sweep-based threshold selection against a
-configurable operating-point criterion (default FPR <= 1 %).
+"""Sweep-based threshold selection against a configurable operating-point
+criterion (default FPR <= 1 %).
 
-The sweep runs over quantiles of the validation score distribution.
-FPR is monotonically non-increasing as the threshold rises (test 2.6:
-the sweep, ordered by ascending threshold, produces a non-increasing
-FPR; equivalently, ordered descending it is non-decreasing). The tuner
-selects the LOWEST threshold whose FPR is at or below the target -
-the lowest such threshold maximises detection sensitivity while still
-honouring the operating-point constraint (proposal UC3 main flow).
+The sweep runs over quantiles of the validation score distribution. FPR
+is monotonically non-increasing as the threshold rises, so the tuner
+selects the LOWEST threshold whose FPR is at or below the target - this
+maximises detection sensitivity while still meeting the FPR constraint.
 
-The validation split is benign-only (activity diagram), so precision
-and recall are reported as None when no positive labels are present;
-FPR is always computable.
+The validation split is benign-only, so precision and recall are
+reported as None when no positive labels are present; FPR is always
+computable.
 """
 
 from __future__ import annotations

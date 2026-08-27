@@ -1,11 +1,7 @@
-"""
-P5 - Operational Monitoring (UC10)
-AlertRecord: value object carrying one alert through the analyst
-workflow. FR-OP-01 (alert emitted), FR-OP-02 (verdict recorded).
+"""Value object carrying one alert through the analyst review workflow.
 
-Mirrors the alert/verdict entities of the 3NF operational schema;
-to_dict()/from_dict() are the serialisation boundary a future
-PostgreSQL adapter would sit behind.
+to_dict()/from_dict() are the serialisation boundary a future storage
+backend (e.g. a database adapter) would sit behind.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Tests for P1 - Data Management, mapped to preliminary test plan 1.1-1.8."""
+"""Tests for data loading, cleaning, and splitting."""
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,6 @@ def make_df(n=200, n_feat=5, seed=0, attack_frac=0.2):
     return df
 
 
-# 1.1 - NaN and Inf repair
 def test_repair_nan_inf_removes_all_bad_values():
     df = make_df()
     df.loc[0, "f0"] = np.nan
@@ -31,7 +30,6 @@ def test_repair_nan_inf_removes_all_bad_values():
     assert len(cleaned) == len(df) - 3
 
 
-# 1.2 - Normalisation: column mean ~ 0, std ~ 1
 def test_normalise_zero_mean_unit_std():
     df = make_df(n=500)
     pre = Preprocessor()
@@ -42,7 +40,6 @@ def test_normalise_zero_mean_unit_std():
     assert np.allclose(feats.std(ddof=0), 1.0, atol=1e-6)
 
 
-# 1.3 - Categorical encoding produces integer-only column
 def test_encode_categorical_integer_column():
     df = make_df()
     pre = Preprocessor()
@@ -51,7 +48,7 @@ def test_encode_categorical_integer_column():
     assert "Label_str" in out.columns
 
 
-# 1.4 - PROPERTY: row count = input - drops, across random DataFrames
+# Property test: row count should equal input rows minus drops, for any random DataFrame.
 @settings(max_examples=100, deadline=None)
 @given(
     n=st.integers(min_value=5, max_value=200),
@@ -70,7 +67,6 @@ def test_row_count_arithmetic_property(n, n_bad, seed):
     assert len(cleaned) == len(df) - dropped
 
 
-# 1.5 - Training split is benign-only; test split is mixed
 def test_split_benign_only_train_mixed_test():
     df = make_df(n=1000, attack_frac=0.3)
     pre = Preprocessor()
@@ -85,7 +81,6 @@ def test_split_benign_only_train_mixed_test():
     assert (test["Label_str"] != config.BENIGN_LABEL).sum() == n_attacks
 
 
-# 1.6 - Determinism: same seed -> identical splits
 def test_split_determinism_same_seed():
     df = make_df(n=800, attack_frac=0.25)
     pre = Preprocessor()
@@ -97,7 +92,6 @@ def test_split_determinism_same_seed():
     pd.testing.assert_frame_equal(s1, s2)
 
 
-# 1.7 - Manifest schema has all required keys including preprocessing_hash
 def test_manifest_required_keys():
     df = make_df()
     pre = Preprocessor()
@@ -111,7 +105,7 @@ def test_manifest_required_keys():
     assert len(manifest["preprocessing_hash"]) == 64  # SHA-256 hex
 
 
-# 1.8 - Integration: end-to-end UC1 produces loadable artefacts
+# Integration: full clean -> split -> persist -> reload round trip.
 def test_uc1_end_to_end_persist_and_reload(tmp_path):
     df = make_df(n=600, attack_frac=0.2)
     pre = Preprocessor()

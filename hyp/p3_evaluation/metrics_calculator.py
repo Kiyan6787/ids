@@ -1,17 +1,10 @@
-"""
-P3 - Evaluation & Analysis (UC5)
-MetricsCalculator: FR-EV-02 (precision, recall, F1, FPR) and FR-EV-05
-(ROC / PR curves).
+"""Stateless detection-metric computations: confusion matrix, precision/
+recall/F1/FPR, and ROC/PR curves - all implemented by hand (no sklearn),
+cross-checked against scikit-learn in the test suite.
 
-Stateless pure-function utility. All metric arithmetic is implemented
-BY HAND here (part of the from-scratch pipeline) and is cross-checked
-against scikit-learn's reference implementations in the test suite
-(preliminary test plan 3.3) - the tests are where the library appears,
-never this module.
-
-Edge-case policy (test 3.4): every ratio with a zero denominator is
-defined as 0.0 rather than raising, so degenerate inputs (no positives,
-no negatives, no predictions) produce well-defined output.
+Every ratio with a zero denominator is defined as 0.0 rather than
+raising, so degenerate inputs (no positives, no negatives, no
+predictions) produce well-defined output.
 """
 
 from __future__ import annotations
@@ -22,7 +15,6 @@ import numpy as np
 class MetricsCalculator:
     """Static, side-effect-free detection-metric computations."""
 
-    # ------------------------------------------------------------- FR-EV-02
     @staticmethod
     def compute_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
         y_true = np.asarray(y_true).reshape(-1).astype(int)
@@ -48,7 +40,6 @@ class MetricsCalculator:
         return {"precision": precision, "recall": recall, "f1": f1,
                 "fpr": fpr, "accuracy": accuracy}
 
-    # ------------------------------------------------------------- FR-EV-05
     @staticmethod
     def compute_roc_curve(y_true: np.ndarray, scores: np.ndarray) -> dict:
         """ROC curve computed from first principles.
@@ -106,8 +97,7 @@ class MetricsCalculator:
 
     @staticmethod
     def compute_auc(x: np.ndarray, y: np.ndarray) -> float:
-        """Area under a curve via the trapezoidal rule (test 3.5 uses this
-        on the ROC curve: AUC must exceed 0.5)."""
+        """Area under a curve via the trapezoidal rule."""
         x = np.asarray(x, dtype=np.float64).reshape(-1)
         y = np.asarray(y, dtype=np.float64).reshape(-1)
         if len(x) != len(y) or len(x) < 2:

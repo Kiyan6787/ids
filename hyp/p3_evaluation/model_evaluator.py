@@ -1,13 +1,9 @@
-"""
-P3 - Evaluation & Analysis (UC4 + UC5)
-ModelEvaluator: scores the test split with any AnomalyDetector
-(polymorphic), applies the tuned threshold, and assembles the full
-per-model results dictionary consumed by ResultsAnalyser and
-ResultsExporter.
+"""Scores the test split with any AnomalyDetector, applies the tuned
+threshold, and assembles the full per-model results dictionary consumed
+by ResultsAnalyser and ResultsExporter.
 
-The evaluator carries the preprocessing manifest hash so that every
-result dictionary is stamped with the data conditions it was produced
-under - the FR-EV-03 fingerprint checked in ResultsAnalyser.
+Each result carries the preprocessing manifest hash, so ResultsAnalyser
+can verify all models were evaluated under identical conditions.
 """
 
 from __future__ import annotations
@@ -23,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModelEvaluator:
-    """UC4 (score flows) + UC5 (evaluate performance) for one model."""
+    """Scores flows and evaluates detection performance for one model."""
 
     def __init__(self, model: AnomalyDetector, threshold: float, manifest_hash: str):
         self.model = model
@@ -32,10 +28,9 @@ class ModelEvaluator:
         self.manifest_hash = manifest_hash
         self.results: dict = {}
 
-    # ------------------------------------------------------------------ API
     def evaluate(self, test_data: np.ndarray, labels: np.ndarray) -> dict:
-        """Full UC5 flow: score -> threshold -> confusion matrix -> metrics
-        -> ROC/PR curves. Returns the assembled results dict."""
+        """Score -> threshold -> confusion matrix -> metrics -> ROC/PR
+        curves. Returns the assembled results dict."""
         labels = np.asarray(labels).reshape(-1).astype(int)
         scores, predictions = self._score_and_predict(test_data)
         if scores.shape != labels.shape:
@@ -47,7 +42,7 @@ class ModelEvaluator:
         pr = self.metrics_calc.compute_pr_curve(labels, scores)
 
         self.results = self._assemble_results(cm, metrics, roc, pr)
-        self.results["scores"] = scores          # kept for UC7 disaggregation
+        self.results["scores"] = scores          # kept for per-category disaggregation
         self.results["labels"] = labels
         logger.info(
             "%s: P=%.3f R=%.3f F1=%.3f FPR=%.4f",

@@ -1,21 +1,14 @@
-"""
-P2 - Model Training & Tuning
-ScratchAutoencoderDetector: the pipeline DEVELOPED FROM SCRATCH required
-by the AI project guidelines.
-
-No machine-learning library is used anywhere in this file. The forward
-pass, mean-squared-error loss, backpropagation gradients, and the Adam
-optimiser update rule are all implemented by hand in NumPy. It plugs
-into the same AnomalyDetector contract as the library-based detectors,
-so the identical downstream pipeline (threshold tuning, evaluation,
-comparison) runs unchanged - which is exactly the FR-EV-03 point.
+"""Autoencoder implemented from scratch in NumPy, no ML library used.
+The forward pass, MSE loss, backprop gradients, and the Adam optimiser
+update rule are all hand-implemented. Plugs into the same AnomalyDetector
+contract as the library-based detectors, so the same downstream pipeline
+(threshold tuning, evaluation, comparison) runs unchanged.
 
 Architecture: input -> hidden (ReLU) -> latent -> hidden (ReLU) -> output
 Loss:         mean squared reconstruction error
-Optimiser:    Adam (Kingma & Ba, 2015), implemented manually
-Score:        per-flow reconstruction MSE (same semantics as the
-              PyTorch AutoencoderDetector, enabling a like-for-like
-              correctness cross-check between the two pipelines)
+Optimiser:    Adam (Kingma & Ba, 2015)
+Score:        per-flow reconstruction MSE (same semantics as
+              AutoencoderDetector, enabling a cross-check between the two)
 """
 
 from __future__ import annotations
