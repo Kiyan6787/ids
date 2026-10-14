@@ -11,7 +11,7 @@ experimental protocol from the preliminary design.
 | Guideline requirement | Where it is satisfied |
 |---|---|
 | Pipeline 1 — existing pipeline, libraries permitted | `IsolationForestDetector` (scikit-learn), `AutoencoderDetector` and `LSTMDetector` (PyTorch). Isolation Forest doubles as the classical benchmark. |
-| Pipeline 2 — developed from scratch by the student | `ScratchAutoencoderDetector` (`hyp/p2_models/scratch_autoencoder.py`): pure NumPy — manual forward pass, manual backpropagation, hand-implemented Adam optimiser. No ML library. Additionally, `MetricsCalculator` (confusion matrix, precision/recall/F1/FPR, ROC/PR curves, trapezoidal AUC) and `ThresholdTuner` are implemented from first principles; scikit-learn appears only in the test suite as an independent cross-check. |
+| Pipeline 2 — developed from scratch by the student | `ScratchIsolationForestDetector` (`hyp/p2_models/scratch_isolation_forest.py`): pure NumPy — hand-built isolation trees, vectorised path-length scoring and the c(n) normalisation from Liu et al. (2008), cross-checked against scikit-learn's `IsolationForest` in the tests. No ML library. Additionally, `MetricsCalculator` (confusion matrix, precision/recall/F1/FPR, ROC/PR curves, trapezoidal AUC) and `ThresholdTuner` are implemented from first principles; scikit-learn appears only in the test suite as an independent cross-check. |
 | Publicly available dataset | CICIDS 2017 (Canadian Institute for Cybersecurity). |
 | Success metrics | Precision, Recall, F1, FPR, Accuracy, ROC-AUC per model; per-attack-category recall; multi-seed mean±std; Wilcoxon significance tests; triviality baselines. |
 
@@ -37,9 +37,6 @@ set it to `None` for the full ~2.8M flows.
 ## Running
 
 ```bash
-# Smoke test — no dataset needed, synthetic data with injected NaN/Inf
-python run_pipeline.py --synthetic --seeds 0 1
-
 # Full experiment: 5 seeds, all four models, CICIDS 2017 in data/raw/
 python run_pipeline.py
 
@@ -54,13 +51,32 @@ tunes the alert threshold to FPR ≤ 1% on benign validation scores → evaluate
 the fixed test split → verifies the FR-EV-03 invariant (identical preprocessing
 manifest hash across models; the comparator refuses to produce output on
 mismatch) → aggregates across seeds, runs pairwise Wilcoxon tests and triviality
-baselines → exports all tables, curves and heatmaps with a UC-traceability
-manifest.
+baselines → exports all tables, curves and heatmaps.
 
 Outputs land in `data/results/`: `comparison_table.csv`,
 `multi_seed_summary.csv`, `significance_tests.csv`, `per_category_table.csv`,
 `triviality_baselines.json`, ROC/PR overlays, confusion-matrix heatmaps,
-per-category recall chart, and `export_manifest.json`.
+and per-category recall chart.
+
+## API (for the Angular dashboard)
+
+`run_pipeline.py` also writes `dashboard.json` (headline results) and
+`deployment.pkl` (the models listed in `config.DEPLOYED_MODELS` plus a sample of
+test flows) to `data/results/`. Start the API after a pipeline run:
+
+```bash
+uvicorn api:app --reload        # http://localhost:8000, docs at /docs
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/results` | Model comparison, confusion matrices, ROC/PR curves, per-category results |
+| `GET /api/alerts` | Alerts raised by each deployed model + its running FPR (P5) |
+| `POST /api/alerts/{id}/verdict` | Analyst verdict (`true_positive` / `false_positive` / `inconclusive`) |
+
+On startup the API replays `config.REPLAY_FLOWS` held-out test flows through each
+deployed model's `AlertManager`, which stands in for live traffic. Alerts are kept in
+memory, so they reset when the API restarts.
 
 ## Tests
 
@@ -68,28 +84,28 @@ per-category recall chart, and `export_manifest.json`.
 python -m pytest tests/ -q
 ```
 
-35 tests mirroring the preliminary-design test plan (items 1.1–1.8, 2.1–2.9,
-3.1–3.10, plus P4/P5 checks), including a Hypothesis property test for the
-preprocessor and an sklearn cross-check of the hand-written metrics.
+A compact suite covering the core behaviour of each package, including an
+sklearn cross-check of the hand-written metrics.
 
 ## Structure
 
 ```
 config.py                     # all paths, hyperparameters, seeds, thresholds
 run_pipeline.py               # top-level orchestrator (UC1→UC8)
+api.py                        # FastAPI service for the dashboard (results + P5 alerts)
 hyp/
   p1_data/                    # DatasetLoader, Preprocessor, DataSplitter
-  p2_models/                  # AnomalyDetector ABC, AE, LSTM, IF, ScratchAE, ThresholdTuner
+  p2_models/                  # AnomalyDetector ABC, AE, LSTM, IF, ScratchIF, ThresholdTuner
   p3_evaluation/              # MetricsCalculator, ModelEvaluator, ResultsAnalyser (FR-EV-03)
-  p4_reporting/               # ResultsExporter (headless matplotlib, manifest)
+  p4_reporting/               # ResultsExporter (headless matplotlib)
   p5_monitoring/              # AlertManager, AlertRecord (in-memory, UC9–UC11)
-tests/                        # pytest suite (35 tests)
+tests/                        # pytest suite
 ```
 
 ## Notes
 
 - Hyperparameters in `config.py` are sensible defaults (the design documents do
   not fix them); adjust freely — everything is centralised there.
-- The P5 monitoring layer is modelled in-memory per the D5 scope; the 3NF
-  operational schema exists in the design docs but a database is not required
-  for the honours prototype.
+- The P5 monitoring layer is modelled in-memory per the D5 scope and exposed
+  through `api.py`; the 3NF operational schema exists in the design docs but a
+  database is not required for the honours prototype.

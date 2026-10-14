@@ -1,9 +1,3 @@
-"""Value object carrying one alert through the analyst review workflow.
-
-to_dict()/from_dict() are the serialisation boundary a future storage
-backend (e.g. a database adapter) would sit behind.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -14,7 +8,6 @@ VALID_VERDICTS = {"true_positive", "false_positive", "inconclusive"}
 
 
 class AlertRecord:
-    """One anomaly alert plus its (eventual) analyst verdict."""
 
     def __init__(self, flow: dict[str, Any], score: float, threshold: float):
         self.alert_id = str(uuid.uuid4())
@@ -26,7 +19,7 @@ class AlertRecord:
         self.reviewer: str | None = None
         self.notes: str | None = None
 
-    # ------------------------------------------------------------------ API
+    # API
     def set_verdict(self, verdict: str, reviewer: str, notes: str = "") -> None:
         if verdict not in VALID_VERDICTS:
             raise ValueError(

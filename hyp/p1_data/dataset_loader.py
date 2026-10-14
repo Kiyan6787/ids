@@ -7,8 +7,6 @@ CICIDS 2017 quirks:
   * a duplicated 'Fwd Header Length' column in some releases.
 """
 
-from __future__ import annotations
-
 import logging
 from pathlib import Path
 
@@ -22,8 +20,7 @@ class DatasetLoader:
 
     def __init__(self, csv_directory: str):
         self.csv_directory = Path(csv_directory)
-        self.raw_dataframe: pd.DataFrame | None = None
-        self.expected_columns: list[str] = []
+        self.raw_dataframe = None
 
     def load_all_csvs(self) -> pd.DataFrame:
         """Read every *.csv in ``csv_directory`` into one DataFrame."""
@@ -47,33 +44,22 @@ class DatasetLoader:
         decides how to fail."""
         if self.raw_dataframe is None:
             raise RuntimeError("Call load_all_csvs() before validate_schema().")
-        self.expected_columns = list(expected)
         missing = [c for c in expected if c not in self.raw_dataframe.columns]
         if missing:
             logger.error("Schema validation failed; missing columns: %s", missing)
             return False
         return True
 
-    def get_row_count(self) -> int:
-        if self.raw_dataframe is None:
-            return 0
-        return len(self.raw_dataframe)
-
     # -------------------------------------------------------------- helpers
-    def _read_single_csv(self, path: Path) -> pd.DataFrame:
+    @staticmethod
+    def _read_single_csv(path: Path) -> pd.DataFrame:
         try:
             df = pd.read_csv(path, low_memory=False)
         except UnicodeDecodeError:
             # Thursday-WorkingHours ships as latin-1 in some releases.
             df = pd.read_csv(path, low_memory=False, encoding="latin-1")
-        df = self._strip_whitespace_columns(df)
+        df.columns = df.columns.str.strip()
         # Drop the duplicated 'Fwd Header Length' column if present.
         df = df.loc[:, ~df.columns.duplicated()]
         logger.debug("Read %s: %d rows", path.name, len(df))
-        return df
-
-    @staticmethod
-    def _strip_whitespace_columns(df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        df.columns = [c.strip() for c in df.columns]
         return df

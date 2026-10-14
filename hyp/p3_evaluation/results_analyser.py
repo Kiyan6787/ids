@@ -1,13 +1,3 @@
-"""Cross-model comparison and per-category disaggregation.
-
-verify_invariant() checks that every evaluation carries the same
-preprocessing manifest hash and the same test-split size. compare_models()
-and the per-category methods refuse to run if that invariant fails,
-rather than return an unfair comparison.
-"""
-
-from __future__ import annotations
-
 import logging
 
 import numpy as np
@@ -18,37 +8,20 @@ from hyp.p3_evaluation.metrics_calculator import MetricsCalculator
 logger = logging.getLogger(__name__)
 
 
-class InvariantViolation(RuntimeError):
-    """Raised when evaluations were not produced under identical conditions."""
-
-
 class ResultsAnalyser:
-    """Cross-model comparison and per-category analysis."""
 
     def __init__(self, evaluations: list[dict]):
-        if not evaluations:
-            raise ValueError("ResultsAnalyser requires at least one evaluation")
         self.evaluations = list(evaluations)
 
     def verify_invariant(self) -> bool:
-        return self._check_manifest_consistency() and self._check_test_size_consistency()
-
-    def _require_invariant(self) -> None:
-        if not self._check_manifest_consistency():
-            raise InvariantViolation(
-                "Evaluations carry different preprocessing manifest hashes - "
-                "the models were not scored under identical conditions. "
-                "Refusing to produce comparative output."
-            )
-        if not self._check_test_size_consistency():
-            raise InvariantViolation(
-                "Evaluations have different test-split sizes. "
-                "Refusing to produce comparative output."
-            )
+        hashes = {ev["manifest_hash"] for ev in self.evaluations}
+        sizes = {ev["n_test_rows"] for ev in self.evaluations}
+        if len(hashes) == 1 and len(sizes) == 1:
+            return True
+        logger.error("Invariant violated: manifest hashes %s, test sizes %s", hashes, sizes)
+        return False
 
     def compare_models(self) -> pd.DataFrame:
-        """Side-by-side metrics table: one row per model, all metrics
-        plus accuracy, ROC-AUC, and threshold."""
         self._require_invariant()
         rows = []
         for ev in self.evaluations:
@@ -65,77 +38,46 @@ class ResultsAnalyser:
             })
         return pd.DataFrame(rows)
 
-    def analyse_by_category(
-        self,
-        scores: np.ndarray,
-        labels: np.ndarray,
-        categories: np.ndarray,
-        threshold: float,
-        model_name: str,
-    ) -> pd.DataFrame:
-        """Disaggregate one model's detection performance by attack category.
-
-        For each attack category: recall on that category's flows, plus
-        the TP/FN counts. FP/TN are properties of the benign population
-        and are reported once under the 'BENIGN' row (as FPR). Every
-        category present in ``categories`` appears in the output."""
-        scores = np.asarray(scores, dtype=np.float64).reshape(-1)
+    def analyse_by_category(self, scores: np.ndarray, labels: np.ndarray,
+                            categories: np.ndarray, threshold: float,
+                            model_name: str) -> pd.DataFrame:
         labels = np.asarray(labels).reshape(-1).astype(int)
         categories = np.asarray(categories).reshape(-1)
-        predictions = (scores > threshold).astype(int)
+        predictions = (np.asarray(scores).reshape(-1) > threshold).astype(int)
 
         rows = []
         for category in sorted(pd.unique(categories)):
             mask = categories == category
-            d = self._disaggregate_metrics(mask, labels, predictions)
-            rows.append({"model": model_name, "category": category, **d})
+            cm = MetricsCalculator.compute_confusion_matrix(labels[mask], predictions[mask])
+            recall = cm["tp"] / (cm["tp"] + cm["fn"]) if cm["tp"] + cm["fn"] > 0 else None
+            fpr = cm["fp"] / (cm["fp"] + cm["tn"]) if cm["fp"] + cm["tn"] > 0 else None
+            rows.append({
+                "model": model_name,
+                "category": category,
+                "n_flows": int(mask.sum()),
+                "tp": cm["tp"],
+                "fp": cm["fp"],
+                "tn": cm["tn"],
+                "fn": cm["fn"],
+                "recall": None if recall is None else round(recall, 4),
+                "fpr": None if fpr is None else round(fpr, 4),
+            })
         return pd.DataFrame(rows)
 
     def analyse_all_models_by_category(self, categories: np.ndarray) -> pd.DataFrame:
-        """Per-category analysis across every evaluation held by the analyser."""
         self._require_invariant()
-        frames = []
+        tables = []
         for ev in self.evaluations:
-            frames.append(self.analyse_by_category(
-                ev["scores"], ev["labels"], categories,
-                ev["threshold"], ev["model_name"],
-            ))
-        return pd.concat(frames, ignore_index=True)
+            table = self.analyse_by_category(ev["scores"], ev["labels"], categories,
+                                             ev["threshold"], ev["model_name"])
+            tables.append(table)
+        return pd.concat(tables, ignore_index=True)
 
-    def get_roc_overlay_data(self) -> dict:
-        self._require_invariant()
-        return {ev["model_name"]: ev["roc_curve"] for ev in self.evaluations}
-
-    def get_pr_overlay_data(self) -> dict:
-        self._require_invariant()
-        return {ev["model_name"]: ev["pr_curve"] for ev in self.evaluations}
-
-    # -------------------------------------------------------------- helpers
-    def _check_manifest_consistency(self) -> bool:
-        hashes = {ev["manifest_hash"] for ev in self.evaluations}
-        ok = len(hashes) == 1
-        if not ok:
-            logger.error("Manifest hash mismatch across evaluations: %s", hashes)
-        return ok
-
-    def _check_test_size_consistency(self) -> bool:
-        sizes = {ev["n_test_rows"] for ev in self.evaluations}
-        ok = len(sizes) == 1
-        if not ok:
-            logger.error("Test-split size mismatch across evaluations: %s", sizes)
-        return ok
-
-    @staticmethod
-    def _disaggregate_metrics(
-        mask: np.ndarray, labels: np.ndarray, predictions: np.ndarray
-    ) -> dict:
-        """Confusion counts restricted to the masked subset. Summing these
-        counts across all category rows reconciles exactly to the overall
-        confusion matrix."""
-        cm = MetricsCalculator.compute_confusion_matrix(labels[mask], predictions[mask])
-        n = int(mask.sum())
-        recall = cm["tp"] / (cm["tp"] + cm["fn"]) if (cm["tp"] + cm["fn"]) > 0 else None
-        fpr = cm["fp"] / (cm["fp"] + cm["tn"]) if (cm["fp"] + cm["tn"]) > 0 else None
-        return {"n_flows": n, **cm,
-                "recall": None if recall is None else round(recall, 4),
-                "fpr": None if fpr is None else round(fpr, 4)}
+    # helpers
+    def _require_invariant(self) -> None:
+        if not self.verify_invariant():
+            raise ValueError(
+                "Evaluations were not produced under identical conditions "
+                "(preprocessing hash or test-split size differ). "
+                "Cant produce comparative output."
+            )

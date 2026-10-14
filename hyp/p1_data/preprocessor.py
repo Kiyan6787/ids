@@ -1,16 +1,13 @@
 """Cleans, encodes, and normalises CICIDS 2017 flow records.
 
-Every preprocessing run produces a manifest with a SHA-256 hash. Model
-artefacts and evaluations carry this hash so ResultsAnalyser can refuse
-to compare results that were produced under different preprocessing.
+Every step is recorded, and the record is hashed (SHA-256). Evaluations
+carry this hash so ResultsAnalyser can refuse to compare results that
+were produced under different preprocessing.
 """
-
-from __future__ import annotations
 
 import hashlib
 import json
 import logging
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -25,35 +22,19 @@ class Preprocessor:
     def __init__(self):
         self.scaler = StandardScaler()
         self.label_encoder = LabelEncoder()
-        self.manifest: dict[str, Any] = {"steps": []}
-        self.drop_log: list[dict] = []
-        self.is_fitted: bool = False
+        self.steps: list[dict] = []
         self.feature_columns: list[str] = []
         self.label_column: str = ""
+        self.rows_dropped = 0
 
     def repair_nan_inf(self, df: pd.DataFrame) -> pd.DataFrame:
         """Drop rows with NaN/Inf artefacts introduced by CICFlowMeter
-        (mainly in 'Flow Bytes/s' and 'Flow Packets/s'). Each drop is
-        recorded in ``drop_log`` so row-count arithmetic stays auditable."""
-        df = df.copy()
-        df.replace([np.inf, -np.inf], np.nan, inplace=True)
-
+        (mainly in 'Flow Bytes/s' and 'Flow Packets/s')."""
         n_before = len(df)
-        nan_mask = df.isna().any(axis=1)
-        n_dropped = int(nan_mask.sum())
-        if n_dropped:
-            per_column = df.loc[nan_mask].isna().sum()
-            self.drop_log.append({
-                "step": "repair_nan_inf",
-                "rows_before": n_before,
-                "rows_dropped": n_dropped,
-                "rows_after": n_before - n_dropped,
-                "columns_affected": {
-                    c: int(v) for c, v in per_column.items() if v > 0
-                },
-            })
-            df = df.loc[~nan_mask].reset_index(drop=True)
-        self.manifest["steps"].append({"repair_nan_inf": {"rows_dropped": n_dropped}})
+        df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+        n_dropped = n_before - len(df)
+        self.rows_dropped += n_dropped
+        self.steps.append({"repair_nan_inf": {"rows_dropped": n_dropped}})
         logger.info("repair_nan_inf: dropped %d rows", n_dropped)
         return df
 
@@ -68,30 +49,27 @@ class Preprocessor:
         df["Label_str"] = df[label_col]
         df[label_col] = self.label_encoder.fit_transform(df[label_col])
         classes = list(self.label_encoder.classes_)
-        self.manifest["steps"].append({"encode_categorical": {"classes": classes}})
+        self.steps.append({"encode_categorical": {"classes": classes}})
         logger.info("encode_categorical: %d classes", len(classes))
         return df
 
     def normalise(self, df: pd.DataFrame, exclude: list[str]) -> pd.DataFrame:
         """Standardise numeric features to mean 0 / std 1. The scaler is
-        fit here on the full cleaned frame and its parameters recorded in
-        the manifest, so the same inputs always yield the same output."""
+        fit here on the full cleaned frame and its parameters recorded,
+        so the same inputs always yield the same hash."""
         df = df.copy()
-        numeric_cols = self._identify_numeric_columns(df)
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
         self.feature_columns = [c for c in numeric_cols if c not in exclude]
-        # Guard: zero-variance columns produce NaN under StandardScaler
-        # division; drop them and log it.
+        # Zero-variance columns carry no signal; drop them and log it.
         variances = df[self.feature_columns].var()
         zero_var = [c for c in self.feature_columns if variances[c] == 0.0]
         if zero_var:
             self.feature_columns = [c for c in self.feature_columns if c not in zero_var]
-            self.manifest["steps"].append({"dropped_zero_variance": zero_var})
+            self.steps.append({"dropped_zero_variance": zero_var})
         df[self.feature_columns] = self.scaler.fit_transform(df[self.feature_columns])
-        self.is_fitted = True
-        self.manifest["steps"].append({
+        self.steps.append({
             "normalise": {
                 "n_features": len(self.feature_columns),
-                "feature_columns": self.feature_columns,
                 "scaler_mean": [round(float(m), 8) for m in self.scaler.mean_],
                 "scaler_scale": [round(float(s), 8) for s in self.scaler.scale_],
             }
@@ -99,30 +77,12 @@ class Preprocessor:
         logger.info("normalise: standardised %d features", len(self.feature_columns))
         return df
 
-    def get_manifest(self) -> dict:
-        """Return the manifest, including its SHA-256 hash, with keys:
-        steps, feature_columns, label_column, drop_log, preprocessing_hash."""
+    def get_manifest_hash(self) -> str:
+        """SHA-256 of every recorded step, the feature columns and the label column."""
         manifest = {
-            "steps": self.manifest["steps"],
+            "steps": self.steps,
             "feature_columns": self.feature_columns,
             "label_column": self.label_column,
-            "drop_log": self.drop_log,
         }
-        manifest["preprocessing_hash"] = self._compute_manifest_hash(manifest)
-        return manifest
-
-    def get_feature_columns(self) -> list[str]:
-        return list(self.feature_columns)
-
-    def get_drop_log(self) -> list[dict]:
-        return list(self.drop_log)
-
-    # -------------------------------------------------------------- helpers
-    @staticmethod
-    def _compute_manifest_hash(manifest: dict) -> str:
         payload = json.dumps(manifest, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
-
-    @staticmethod
-    def _identify_numeric_columns(df: pd.DataFrame) -> list[str]:
-        return df.select_dtypes(include=[np.number]).columns.tolist()

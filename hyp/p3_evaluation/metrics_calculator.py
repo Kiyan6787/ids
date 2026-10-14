@@ -1,19 +1,7 @@
-"""Stateless detection-metric computations: confusion matrix, precision/
-recall/F1/FPR, and ROC/PR curves - all implemented by hand (no sklearn),
-cross-checked against scikit-learn in the test suite.
-
-Every ratio with a zero denominator is defined as 0.0 rather than
-raising, so degenerate inputs (no positives, no negatives, no
-predictions) produce well-defined output.
-"""
-
-from __future__ import annotations
-
 import numpy as np
 
 
 class MetricsCalculator:
-    """Static, side-effect-free detection-metric computations."""
 
     @staticmethod
     def compute_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
@@ -41,66 +29,57 @@ class MetricsCalculator:
                 "fpr": fpr, "accuracy": accuracy}
 
     @staticmethod
-    def compute_roc_curve(y_true: np.ndarray, scores: np.ndarray) -> dict:
-        """ROC curve computed from first principles.
-
-        Sort by descending score; sweep every distinct score as a
-        threshold; accumulate TP/FP counts. Returns fpr, tpr and the
-        corresponding thresholds (descending)."""
+    def _sort_by_score(y_true: np.ndarray, scores: np.ndarray) -> tuple[list, list]:
+        """Return labels and scores as plain lists, highest score first."""
         y_true = np.asarray(y_true).reshape(-1).astype(int)
         scores = np.asarray(scores, dtype=np.float64).reshape(-1)
-        order = np.argsort(-scores, kind="mergesort")   # stable
-        y_sorted = y_true[order]
-        s_sorted = scores[order]
+        order = np.argsort(scores)[::-1]
+        return y_true[order].tolist(), scores[order].tolist()
 
-        p = int(y_true.sum())
-        n = int(len(y_true) - p)
+    @staticmethod
+    def compute_roc_curve(y_true: np.ndarray, scores: np.ndarray) -> dict:
+        labels, sorted_scores = MetricsCalculator._sort_by_score(y_true, scores)
+        n_pos = sum(labels)
+        n_neg = len(labels) - n_pos
 
-        tps = np.cumsum(y_sorted)
-        fps = np.cumsum(1 - y_sorted)
-        # Keep only the last index of each distinct score (threshold points)
-        distinct = np.where(np.diff(s_sorted))[0]
-        idx = np.r_[distinct, len(s_sorted) - 1]
-
-        tpr = tps[idx] / p if p > 0 else np.zeros(len(idx))
-        fpr = fps[idx] / n if n > 0 else np.zeros(len(idx))
-        # Prepend the (0, 0) origin
-        return {
-            "fpr": np.r_[0.0, fpr].tolist(),
-            "tpr": np.r_[0.0, tpr].tolist(),
-            "thresholds": np.r_[s_sorted[idx][0] + 1.0, s_sorted[idx]].tolist(),
-        }
+        tp, fp = 0, 0
+        fpr, tpr = [0.0], [0.0] 
+        for i in range(len(labels)):
+            if labels[i] == 1:
+                tp += 1
+            else:
+                fp += 1
+            is_last = i == len(labels) - 1
+            if is_last or sorted_scores[i + 1] != sorted_scores[i]:
+                fpr.append(fp / n_neg if n_neg > 0 else 0.0)
+                tpr.append(tp / n_pos if n_pos > 0 else 0.0)
+        return {"fpr": fpr, "tpr": tpr}
 
     @staticmethod
     def compute_pr_curve(y_true: np.ndarray, scores: np.ndarray) -> dict:
-        y_true = np.asarray(y_true).reshape(-1).astype(int)
-        scores = np.asarray(scores, dtype=np.float64).reshape(-1)
-        order = np.argsort(-scores, kind="mergesort")
-        y_sorted = y_true[order]
-        s_sorted = scores[order]
+        labels, sorted_scores = MetricsCalculator._sort_by_score(y_true, scores)
+        n_pos = sum(labels)
 
-        p = int(y_true.sum())
-        tps = np.cumsum(y_sorted)
-        preds = np.arange(1, len(y_sorted) + 1)
-
-        distinct = np.where(np.diff(s_sorted))[0]
-        idx = np.r_[distinct, len(s_sorted) - 1]
-
-        precision = tps[idx] / preds[idx]
-        recall = tps[idx] / p if p > 0 else np.zeros(len(idx))
-        # Standard endpoint: recall 0 at precision 1
-        return {
-            "precision": np.r_[1.0, precision].tolist(),
-            "recall": np.r_[0.0, recall].tolist(),
-            "thresholds": s_sorted[idx].tolist(),
-        }
+        tp, fp = 0, 0
+        precision, recall = [1.0], [0.0]
+        for i in range(len(labels)):
+            if labels[i] == 1:
+                tp += 1
+            else:
+                fp += 1
+            is_last = i == len(labels) - 1
+            if is_last or sorted_scores[i + 1] != sorted_scores[i]:
+                precision.append(tp / (tp + fp))
+                recall.append(tp / n_pos if n_pos > 0 else 0.0)
+        return {"precision": precision, "recall": recall}
 
     @staticmethod
-    def compute_auc(x: np.ndarray, y: np.ndarray) -> float:
-        """Area under a curve via the trapezoidal rule."""
-        x = np.asarray(x, dtype=np.float64).reshape(-1)
-        y = np.asarray(y, dtype=np.float64).reshape(-1)
+    def compute_auc(x: list, y: list) -> float:
         if len(x) != len(y) or len(x) < 2:
             raise ValueError("compute_auc needs two equal-length arrays, n >= 2")
-        order = np.argsort(x, kind="mergesort")
-        return float(np.trapezoid(y[order], x[order]))
+        area = 0.0
+        for i in range(1, len(x)):
+            width = x[i] - x[i - 1]
+            average_height = (y[i] + y[i - 1]) / 2
+            area += width * average_height
+        return float(area)
