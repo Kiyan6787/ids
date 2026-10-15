@@ -1,7 +1,0 @@
-model_a,model_b,mean_f1_diff,wilcoxon_stat,p_value
-autoencoder,lstm,0.5057887263671396,0.0,0.0625
-autoencoder,isolation_forest,0.5096531743969805,0.0,0.0625
-autoencoder,scratch_isolation_forest,0.5033365636841246,0.0,0.0625
-lstm,isolation_forest,0.003864448029841,2.0,0.1875
-lstm,scratch_isolation_forest,-0.0024521626830149995,6.0,0.8125
-isolation_forest,scratch_isolation_forest,-0.006316610712855999,7.0,1.0

@@ -11,9 +11,9 @@ experimental protocol from the preliminary design.
 | Guideline requirement | Where it is satisfied |
 |---|---|
 | Pipeline 1 — existing pipeline, libraries permitted | `IsolationForestDetector` (scikit-learn), `AutoencoderDetector` and `LSTMDetector` (PyTorch). Isolation Forest doubles as the classical benchmark. |
-| Pipeline 2 — developed from scratch by the student | `ScratchIsolationForestDetector` (`hyp/p2_models/scratch_isolation_forest.py`): pure NumPy — hand-built isolation trees, vectorised path-length scoring and the c(n) normalisation from Liu et al. (2008), cross-checked against scikit-learn's `IsolationForest` in the tests. No ML library. Additionally, `MetricsCalculator` (confusion matrix, precision/recall/F1/FPR, ROC/PR curves, trapezoidal AUC) and `ThresholdTuner` are implemented from first principles; scikit-learn appears only in the test suite as an independent cross-check. |
+| Pipeline 2 — developed from scratch by the student | `ScratchIsolationForestDetector` (`hyp/p2_models/scratch_isolation_forest.py`): pure NumPy — hand-built isolation trees, vectorised path-length scoring and the c(n) normalisation from Liu et al. (2008), cross-checked against scikit-learn's `IsolationForest` in the tests. No ML library. Additionally, `MetricsCalculator` (confusion matrix, precision/recall/F1/FPR/accuracy) is implemented from first principles; scikit-learn appears only in the test suite as an independent cross-check. |
 | Publicly available dataset | CICIDS 2017 (Canadian Institute for Cybersecurity). |
-| Success metrics | Precision, Recall, F1, FPR, Accuracy, ROC-AUC per model; per-attack-category recall; multi-seed mean±std; Wilcoxon significance tests; triviality baselines. |
+| Success metrics | Precision, Recall, F1, FPR and Accuracy per model (comparison table); confusion matrix per model. |
 
 ## Setup
 
@@ -47,16 +47,15 @@ python run_pipeline.py --models autoencoder isolation_forest --seeds 0 1 2
 The pipeline: loads and validates the dataset (FR-DM-01 schema gate) → repairs
 NaN/Inf, encodes, normalises → benign-only 60/20 train/validation split with all
 attacks reserved for the mixed test split → trains each model on each seed →
-tunes the alert threshold to FPR ≤ 1% on benign validation scores → evaluates on
-the fixed test split → verifies the FR-EV-03 invariant (identical preprocessing
-manifest hash across models; the comparator refuses to produce output on
-mismatch) → aggregates across seeds, runs pairwise Wilcoxon tests and triviality
-baselines → exports all tables, curves and heatmaps.
+sets the alert threshold to the 99th percentile of benign validation scores
+(FPR ≤ 1%) → evaluates on the fixed test split → verifies the FR-EV-03 invariant
+(identical preprocessing manifest hash across models; the comparator refuses to
+produce output on mismatch) → exports the comparison table and confusion matrices.
+The reported results come from the first seed; with more than one seed, the
+comparison table also gets `<metric>_std` columns (standard deviation across seeds).
 
-Outputs land in `data/results/`: `comparison_table.csv`,
-`multi_seed_summary.csv`, `significance_tests.csv`, `per_category_table.csv`,
-`triviality_baselines.json`, ROC/PR overlays, confusion-matrix heatmaps,
-and per-category recall chart.
+Outputs land in `data/results/`: `comparison_table.csv` and one
+`confusion_<model>.png` heatmap per model.
 
 ## API (for the Angular dashboard)
 
@@ -70,7 +69,7 @@ uvicorn api:app --reload        # http://localhost:8000, docs at /docs
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/results` | Model comparison, confusion matrices, ROC/PR curves, per-category results |
+| `GET /api/results` | Model comparison metrics, thresholds and confusion matrices |
 | `GET /api/alerts` | Alerts raised by each deployed model + its running FPR (P5) |
 | `POST /api/alerts/{id}/verdict` | Analyst verdict (`true_positive` / `false_positive` / `inconclusive`) |
 
@@ -95,7 +94,7 @@ run_pipeline.py               # top-level orchestrator (UC1→UC8)
 api.py                        # FastAPI service for the dashboard (results + P5 alerts)
 hyp/
   p1_data/                    # DatasetLoader, Preprocessor, DataSplitter
-  p2_models/                  # AnomalyDetector ABC, AE, LSTM, IF, ScratchIF, ThresholdTuner
+  p2_models/                  # AnomalyDetector ABC, AE, LSTM, IF, ScratchIF
   p3_evaluation/              # MetricsCalculator, ModelEvaluator, ResultsAnalyser (FR-EV-03)
   p4_reporting/               # ResultsExporter (headless matplotlib)
   p5_monitoring/              # AlertManager, AlertRecord (in-memory, UC9–UC11)

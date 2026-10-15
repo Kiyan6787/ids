@@ -1,4 +1,4 @@
-"""Tests for model training and threshold tuning.
+"""Tests for model training and scoring.
 
 Deep models run with tiny epochs/dimensions so the suite stays fast.
 """
@@ -12,7 +12,6 @@ from hyp.p2_models.lstm_detector import LSTMDetector
 from hyp.p2_models.isolation_forest_detector import IsolationForestDetector
 from hyp.p2_models.scratch_isolation_forest import (ScratchIsolationForestDetector,
                                                     average_path_length)
-from hyp.p2_models.threshold_tuner import ThresholdTuner
 
 
 def benign_data(n=400, d=8, seed=0):
@@ -92,8 +91,3 @@ def test_scratch_isolation_forest_is_reproducible():
     b.train(X)
     np.testing.assert_array_equal(a.score(X), b.score(X))
 
-
-def test_selected_threshold_satisfies_criterion():
-    scores = np.random.RandomState(1).rand(5000)
-    thr = ThresholdTuner.tune(scores, np.zeros(5000, dtype=int), target_fpr=0.01)
-    assert np.mean(scores > thr) <= 0.01

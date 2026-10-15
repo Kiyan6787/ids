@@ -42,7 +42,7 @@ class Preprocessor:
         """Numerically encode the label column. CICIDS feature columns
         are already numeric; the only categorical field is the label.
         The original string label is preserved in 'Label_str' for
-        per-category analysis."""
+        benign/attack labelling and alert categories."""
         df = df.copy()
         self.label_column = label_col
         df[label_col] = df[label_col].astype(str).str.strip()

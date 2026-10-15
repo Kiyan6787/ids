@@ -13,7 +13,7 @@ RESULTS_DIR = DATA_DIR / "results"      # metrics, tables, figures
 LABEL_COLUMN = "Label"
 BENIGN_LABEL = "BENIGN"
 
-# CICIDS 2017 attack-label -> category mapping, for per-category reporting.
+# CICIDS 2017 attack-label -> category mapping, used to label alerts in the API.
 # Keys are labels as they appear in the CSVs after whitespace stripping.
 ATTACK_CATEGORY_MAP = {
     "DoS Hulk": "DoS",
@@ -82,6 +82,3 @@ REPLAY_FLOWS = 200   # test flows the API replays through each deployed model
 # Threshold tuning and experiment protocol
 TARGET_FPR = 0.01                   # target operating point: FPR <= 1%
 SEEDS = [0, 1, 2, 3, 4]             # seeds for the multi-seed run
-
-# Max tolerated F1 std across seeds before a stability warning is logged.
-MAX_F1_STD = 0.20

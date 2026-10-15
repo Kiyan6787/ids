@@ -17,12 +17,9 @@ def make_evaluation(model_name, seed=0):
     y = (rng.rand(400) < 0.3).astype(int)
     scores = rng.normal(0, 1, 400) + 2.5 * y
     cm = MC.compute_confusion_matrix(y, (scores > 1.0).astype(int))
-    roc = MC.compute_roc_curve(y, scores)
     return {
         "model_name": model_name, "threshold": 1.0, "confusion_matrix": cm,
-        "metrics": MC.compute_metrics(cm), "roc_curve": roc,
-        "pr_curve": MC.compute_pr_curve(y, scores),
-        "roc_auc": MC.compute_auc(roc["fpr"], roc["tpr"]),
+        "metrics": MC.compute_metrics(cm),
     }
 
 
@@ -30,18 +27,11 @@ def make_evaluation(model_name, seed=0):
 def test_exporter_creates_all_artefacts(tmp_path):
     evs = [make_evaluation(m, i) for i, m in enumerate(["AE", "LSTM"])]
     comparison = pd.DataFrame([{"model": e["model_name"], **e["metrics"]} for e in evs])
-    category = pd.DataFrame({"model": ["AE", "AE"], "category": ["DoS", "BENIGN"],
-                             "recall": [0.9, None]})
     ex = ResultsExporter(str(tmp_path))
-    ex.export_tables(comparison, category)
+    ex.export_comparison_table(comparison)
     ex.export_confusion_matrices(evs)
-    ex.export_roc_curves(evs)
-    ex.export_pr_curves(evs)
-    ex.export_category_charts(category)
     assert {p.name for p in tmp_path.iterdir()} == {
-        "comparison_table.csv", "per_category_table.csv",
-        "confusion_AE.png", "confusion_LSTM.png",
-        "roc_overlay.png", "pr_overlay.png", "per_category_recall.png",
+        "comparison_table.csv", "confusion_AE.png", "confusion_LSTM.png",
     }
 
 

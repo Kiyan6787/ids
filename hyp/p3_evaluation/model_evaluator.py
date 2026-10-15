@@ -23,7 +23,6 @@ class ModelEvaluator:
 
         cm = MC.compute_confusion_matrix(labels, predictions)
         metrics = MC.compute_metrics(cm)
-        roc = MC.compute_roc_curve(labels, scores)
         logger.info(
             "%s: P=%.3f R=%.3f F1=%.3f FPR=%.4f", self.model.model_name,
             metrics["precision"], metrics["recall"], metrics["f1"], metrics["fpr"],
@@ -35,9 +34,4 @@ class ModelEvaluator:
             "n_test_rows": len(labels),
             "confusion_matrix": cm,
             "metrics": metrics,
-            "roc_curve": roc,
-            "pr_curve": MC.compute_pr_curve(labels, scores),
-            "roc_auc": MC.compute_auc(roc["fpr"], roc["tpr"]),
-            "scores": scores,
-            "labels": labels,
         }
