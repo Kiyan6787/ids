@@ -23,14 +23,13 @@ class _IsolationTree:
 
 
     def __init__(self, rows: np.ndarray, height_limit: int, rng: np.random.RandomState):
-        self.feature: list[int] = []      # split feature, -1 for a leaf
-        self.threshold: list[float] = []  # split value p
-        self.left: list[int] = []         # child node for x[feature] < p
-        self.right: list[int] = []        # child node for x[feature] >= p
-        self.size: list[int] = []         # training rows that reached this node
+        self.feature: list[int] = []     
+        self.threshold: list[float] = []  
+        self.left: list[int] = []         
+        self.right: list[int] = []        
+        self.size: list[int] = []       
         self.depth: list[int] = [] 
         self._grow(rows, 0, height_limit, rng)
-        # Freeze to arrays for vectorised scoring
         self.feature = np.array(self.feature)
         self.threshold = np.array(self.threshold)
         self.left = np.array(self.left)

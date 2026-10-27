@@ -25,10 +25,9 @@ def test_repair_nan_inf_removes_all_bad_values():
     assert len(cleaned) == len(df) - 3
 
 
-def test_encode_and_normalise():
+def test_clean_labels_and_normalise():
     pre = Preprocessor()
-    df = pre.encode_categorical(make_df(n=500), "Label")
-    assert pd.api.types.is_integer_dtype(df["Label"])
+    df = pre.clean_labels(make_df(n=500), "Label")
     assert "Label_str" in df.columns
     feats = pre.normalise(df, exclude=["Label"])[pre.feature_columns]
     assert np.allclose(feats.mean(), 0.0, atol=1e-9)
@@ -36,7 +35,7 @@ def test_encode_and_normalise():
 
 
 def test_split_benign_only_train_mixed_test_deterministic():
-    df = Preprocessor().encode_categorical(make_df(n=1000, attack_frac=0.3), "Label")
+    df = Preprocessor().clean_labels(make_df(n=1000, attack_frac=0.3), "Label")
     train, val, test = DataSplitter(random_seed=0).split(df)
     assert (train["Label_str"] == config.BENIGN_LABEL).all()
     assert (val["Label_str"] == config.BENIGN_LABEL).all()
@@ -46,3 +45,10 @@ def test_split_benign_only_train_mixed_test_deterministic():
     assert (test["Label_str"] != config.BENIGN_LABEL).sum() == n_attacks
     # same seed -> identical split
     pd.testing.assert_frame_equal(test, DataSplitter(random_seed=0).split(df)[2])
+
+
+def test_split_keeps_time_order():
+    df = Preprocessor().clean_labels(make_df(n=1000, attack_frac=0.3), "Label")
+    df["row"] = np.arange(len(df))          # original (time) position
+    for part in DataSplitter(random_seed=0).split(df):
+        assert part["row"].is_monotonic_increasing

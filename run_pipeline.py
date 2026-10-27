@@ -56,19 +56,18 @@ def run_p1():
         logger.error("Schema validation failed - stopping (activity diagram gate).")
         sys.exit(1)
     if config.SAMPLE_ROWS and len(df) > config.SAMPLE_ROWS:
-        df = df.sample(n=config.SAMPLE_ROWS, random_state=0).reset_index(drop=True)
+        df = df.sample(n=config.SAMPLE_ROWS, random_state=0).sort_index().reset_index(drop=True)
         logger.info("Sampled %d rows for laptop-scale run", config.SAMPLE_ROWS)
 
     pre = Preprocessor()
     df = pre.repair_nan_inf(df)
-    df = pre.encode_categorical(df, config.LABEL_COLUMN)
+    df = pre.clean_labels(df, config.LABEL_COLUMN)
     df = pre.normalise(df, exclude=[config.LABEL_COLUMN])
 
     train, val, test = DataSplitter(random_seed=0).split(df)
     return train, val, test, pre
 
 
-# Train, tune, and evaluate one (model, seed) pair
 def run_model_once(model_key: str, seed: int, train, val, test,
                    feature_cols, manifest_hash):
     """Returns the evaluation results and the trained detector."""
@@ -81,7 +80,6 @@ def run_model_once(model_key: str, seed: int, train, val, test,
     logger.info("=== %s (seed %d): training on %d benign flows ===",
                 detector.model_name, seed, len(X_train))
     detector.train(X_train)
-    # Validation is benign-only, so this quantile gives FPR <= TARGET_FPR on it
     threshold = float(np.quantile(detector.score(X_val), 1 - config.TARGET_FPR))
     results = ModelEvaluator(detector, threshold, manifest_hash).evaluate(X_test, y_test)
     return results, detector
@@ -89,9 +87,9 @@ def run_model_once(model_key: str, seed: int, train, val, test,
 
 # Save the deployed models for the API
 def save_deployment(detectors, headline, test, feature_cols, manifest_hash):
-    """Pickle the deployed detectors, their tuned thresholds and a sample of
-    test flows. api.py replays those flows through AlertManager to raise alerts."""
-    replay = test.sample(n=min(config.REPLAY_FLOWS, len(test)), random_state=0)
+    n = min(config.REPLAY_FLOWS, len(test))
+    start = np.random.RandomState(0).randint(0, len(test) - n + 1)
+    replay = test.iloc[start:start + n]
     thresholds = {ev["model_name"]: ev["threshold"] for ev in headline}
     deployment = {
         "detectors": {d.model_name: d for d in detectors},
@@ -130,19 +128,16 @@ def main():
 
     headline = [all_results[m][0] for m in args.models]
     comparison_df = ResultsAnalyser(headline).compare_models()
-    # Spread across seeds, to show the seed-0 numbers aren't a lucky/unlucky draw
     if len(args.seeds) > 1:
         for metric in ("precision", "recall", "f1", "fpr", "accuracy"):
             comparison_df[f"{metric}_std"] = [
                 round(float(np.std([r["metrics"][metric] for r in all_results[m]], ddof=1)), 4)
                 for m in args.models]
 
-    # Export comparison table and confusion matrices
     exporter = ResultsExporter(str(config.RESULTS_DIR))
     exporter.export_comparison_table(comparison_df)
     exporter.export_confusion_matrices(headline)
 
-    # Dashboard results
     summary = {
         "source": "CICIDS 2017",
         "manifest_hash": manifest_hash,

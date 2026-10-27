@@ -1,6 +1,3 @@
-"""PyTorch undercomplete autoencoder trained on benign traffic only;
-anomaly score = per-flow reconstruction error (MSE)."""
-
 import logging
 
 import numpy as np

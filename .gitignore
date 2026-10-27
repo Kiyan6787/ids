@@ -2,3 +2,4 @@ __pycache__/
 data/raw/
 data/models/
 data/results/deployment.pkl
+data/results/alerts.json

@@ -11,7 +11,6 @@ import seaborn as sns
 
 
 class ResultsExporter:
-    """Collates evaluation outputs into report-ready artefacts."""
 
     def __init__(self, output_dir: str):
         self.output_dir = Path(output_dir)

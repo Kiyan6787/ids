@@ -33,38 +33,31 @@ class LSTMDetector(AnomalyDetector):
         self.seed = seed
         self.training_losses: list[float] = []
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.lstm = None 
-        self.output_layer = None
+        self.network = None
 
     # API
     def train(self, train_data: np.ndarray) -> None:
         torch.manual_seed(self.seed)
         train_data = np.asarray(train_data, dtype=np.float32)
-        X, y = self._create_sequences(train_data)
-
-        n_features = train_data.shape[1]
-        self.lstm = nn.LSTM(n_features, self.hidden_dim, self.num_layers,
-                            batch_first=True).to(self.device)
-        self.output_layer = nn.Linear(self.hidden_dim, n_features).to(self.device)
+        windows = self._create_windows(train_data)
+        self.network = self._build_network(train_data.shape[1])
 
         loader = DataLoader(
-            TensorDataset(torch.from_numpy(X), torch.from_numpy(y)),
+            TensorDataset(torch.from_numpy(windows)),
             batch_size=self.batch_size, shuffle=True,
             generator=torch.Generator().manual_seed(self.seed),
         )
-        params = list(self.lstm.parameters()) + list(self.output_layer.parameters())
-        optimiser = torch.optim.Adam(params, lr=self.lr)
+        optimiser = torch.optim.Adam(self.network.parameters(), lr=self.lr)
         criterion = nn.MSELoss()
 
-        self.lstm.train()
-        self.output_layer.train()
+        self.network.train()
         self.training_losses = []
         for epoch in range(self.epochs):
             epoch_loss = 0.0
-            for xb, yb in loader:
-                xb, yb = xb.to(self.device), yb.to(self.device)
+            for (batch,) in loader:
+                batch = batch.to(self.device)
                 optimiser.zero_grad()
-                loss = criterion(self._forward(xb), yb)
+                loss = criterion(self._forward(batch), batch)
                 loss.backward()
                 optimiser.step()
                 epoch_loss += loss.item()
@@ -74,28 +67,35 @@ class LSTMDetector(AnomalyDetector):
 
     @torch.no_grad()
     def score(self, data: np.ndarray) -> np.ndarray:
-        X, y = self._create_sequences(np.asarray(data, dtype=np.float32))
-        self.lstm.eval()
-        self.output_layer.eval()
+        windows = self._create_windows(np.asarray(data, dtype=np.float32))
+        self.network.eval()
         errors = []
-        for start in range(0, len(X), self.batch_size):
-            xb = torch.from_numpy(X[start:start + self.batch_size]).to(self.device)
-            yb = torch.from_numpy(y[start:start + self.batch_size]).to(self.device)
-            errors.append(torch.mean((self._forward(xb) - yb) ** 2, dim=1).cpu().numpy())
+        for start in range(0, len(windows), self.batch_size):
+            batch = torch.from_numpy(windows[start:start + self.batch_size]).to(self.device)
+            # per-flow error inside each window: shape (batch, seq_len)
+            errors.append(torch.mean((self._forward(batch) - batch) ** 2, dim=2).cpu().numpy())
         errors = np.concatenate(errors)
 
-        warm_up = np.full(self.seq_len, errors[0])
-        return np.concatenate([warm_up, errors]).astype(np.float64)
+        return np.concatenate([errors[0, :-1], errors[:, -1]]).astype(np.float64)
 
     # helpers
-    def _create_sequences(self, data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Sliding windows: X[i] = flows[i : i+L], y[i] = flows[i+L]."""
+    def _create_windows(self, data: np.ndarray) -> np.ndarray:
         L = self.seq_len
-        if len(data) <= L:
-            raise ValueError(f"Need more than seq_len={L} rows, got {len(data)}.")
-        X = np.stack([data[i:i + L] for i in range(len(data) - L)])
-        return X, data[L:]
+        if len(data) < L:
+            raise ValueError(f"Need at least seq_len={L} rows, got {len(data)}.")
+        return np.stack([data[i:i + L] for i in range(len(data) - L + 1)])
+
+    def _build_network(self, n_features: int) -> nn.ModuleDict:
+        return nn.ModuleDict({
+            "encoder": nn.LSTM(n_features, self.hidden_dim, self.num_layers,
+                               batch_first=True),
+            "decoder": nn.LSTM(self.hidden_dim, self.hidden_dim, self.num_layers,
+                               batch_first=True),
+            "output": nn.Linear(self.hidden_dim, n_features),
+        }).to(self.device)
 
     def _forward(self, x: torch.Tensor) -> torch.Tensor:
-        out, _ = self.lstm(x)
-        return self.output_layer(out[:, -1]) 
+        _, (hidden, _) = self.network["encoder"](x)
+        latent = hidden[-1].unsqueeze(1).repeat(1, x.shape[1], 1)
+        out, _ = self.network["decoder"](latent)
+        return self.network["output"](out)

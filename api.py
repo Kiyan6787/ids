@@ -10,6 +10,7 @@ from hyp.p5_monitoring.alert_manager import AlertManager
 
 DASHBOARD_FILE = config.RESULTS_DIR / "dashboard.json"
 DEPLOYMENT_FILE = config.RESULTS_DIR / "deployment.pkl"
+ALERTS_FILE = config.RESULTS_DIR / "alerts.json"
 
 if not DASHBOARD_FILE.exists() or not DEPLOYMENT_FILE.exists():
     raise SystemExit("No pipeline output found - run `python run_pipeline.py` first.")
@@ -63,8 +64,7 @@ def get_results():
     return dashboard
 
 
-@app.get("/api/alerts")
-def get_alerts():
+def alerts_payload() -> dict:
     alerts = []
     for name, manager in managers.items():
         for record in manager.get_alert_history():
@@ -95,6 +95,20 @@ def get_alerts():
     }
 
 
+def save_alerts() -> None:
+    """Write the /api/alerts payload to alerts.json. Rewritten after every
+    verdict; a restart replays the flows again and starts a fresh file."""
+    ALERTS_FILE.write_text(json.dumps(alerts_payload(), indent=2))
+
+
+save_alerts()
+
+
+@app.get("/api/alerts")
+def get_alerts():
+    return alerts_payload()
+
+
 @app.post("/api/alerts/{alert_id}/verdict")
 def set_verdict(alert_id: str, request: VerdictRequest):
     manager, record = find_alert(alert_id)
@@ -106,6 +120,7 @@ def set_verdict(alert_id: str, request: VerdictRequest):
         raise HTTPException(status_code=400, detail=str(error))
     if request.verdict != "inconclusive":
         manager.update_fpr(request.verdict)
+    save_alerts()
     return {"id": record.alert_id, "verdict": record.verdict,
             "running_fpr": manager.get_running_fpr(),
             "should_re_tune": manager.should_re_tune()}

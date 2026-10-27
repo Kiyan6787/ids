@@ -10,7 +10,7 @@ experimental protocol from the preliminary design.
 
 | Guideline requirement | Where it is satisfied |
 |---|---|
-| Pipeline 1 — existing pipeline, libraries permitted | `IsolationForestDetector` (scikit-learn), `AutoencoderDetector` and `LSTMDetector` (PyTorch). Isolation Forest doubles as the classical benchmark. |
+| Pipeline 1 — existing pipeline, libraries permitted | `IsolationForestDetector` (scikit-learn), `AutoencoderDetector` and `LSTMDetector` (PyTorch; the LSTM is an LSTM autoencoder over windows of consecutive flows). Isolation Forest doubles as the classical benchmark. |
 | Pipeline 2 — developed from scratch by the student | `ScratchIsolationForestDetector` (`hyp/p2_models/scratch_isolation_forest.py`): pure NumPy — hand-built isolation trees, vectorised path-length scoring and the c(n) normalisation from Liu et al. (2008), cross-checked against scikit-learn's `IsolationForest` in the tests. No ML library. Additionally, `MetricsCalculator` (confusion matrix, precision/recall/F1/FPR/accuracy) is implemented from first principles; scikit-learn appears only in the test suite as an independent cross-check. |
 | Publicly available dataset | CICIDS 2017 (Canadian Institute for Cybersecurity). |
 | Success metrics | Precision, Recall, F1, FPR and Accuracy per model (comparison table); confusion matrix per model. |
@@ -28,16 +28,19 @@ Python 3.11+ recommended. CPU-only PyTorch is sufficient.
 
 Download the CICIDS 2017 "MachineLearningCVE" CSV files from
 https://www.unb.ca/cic/datasets/ids-2017.html and place them in `data/raw/`.
-The loader concatenates every `*.csv` in that folder, normalises the whitespace
-in column names, and maps the raw labels to seven attack categories plus BENIGN
-(see `config.ATTACK_CATEGORY_MAP`). By default a stratified sample of
+The loader concatenates every `*.csv` in that folder in capture order (Monday to
+Friday, see `config.CSV_FILE_ORDER`), normalises the whitespace in column names,
+and maps the raw labels to seven attack categories plus BENIGN (see
+`config.ATTACK_CATEGORY_MAP`). The CSVs have no timestamp column, so row order is
+the only time order; it is kept throughout (sampling and splitting included) so
+the LSTM sees flows in sequence. By default a random sample of
 `config.SAMPLE_ROWS` (400 000) flows is used so the experiment fits on a laptop;
 set it to `None` for the full ~2.8M flows.
 
 ## Running
 
 ```bash
-# Full experiment: 5 seeds, all four models, CICIDS 2017 in data/raw/
+# Full experiment: 5 seeds, all models, CICIDS 2017 in data/raw/
 python run_pipeline.py
 
 # Subsets
@@ -45,7 +48,7 @@ python run_pipeline.py --models autoencoder isolation_forest --seeds 0 1 2
 ```
 
 The pipeline: loads and validates the dataset (FR-DM-01 schema gate) → repairs
-NaN/Inf, encodes, normalises → benign-only 60/20 train/validation split with all
+NaN/Inf, cleans labels, normalises → benign-only 60/20 train/validation split with all
 attacks reserved for the mixed test split → trains each model on each seed →
 sets the alert threshold to the 99th percentile of benign validation scores
 (FPR ≤ 1%) → evaluates on the fixed test split → verifies the FR-EV-03 invariant
@@ -75,7 +78,9 @@ uvicorn api:app --reload        # http://localhost:8000, docs at /docs
 
 On startup the API replays `config.REPLAY_FLOWS` held-out test flows through each
 deployed model's `AlertManager`, which stands in for live traffic. Alerts are kept in
-memory, so they reset when the API restarts.
+memory and mirrored to `data/results/alerts.json` (the same payload as `GET /api/alerts`),
+which is rewritten after every verdict. A restart replays the flows again and starts a
+fresh file, so verdicts do not carry over.
 
 ## Tests
 
